@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import userModel from "./userModel.js";
 import jwt from "jsonwebtoken";
 import { config } from "../config/config.js";
+import type { User } from "./userTypes.js";
 
 const createUser = async (req: Request, res: Response, next: NextFunction) => {
     const { name, email, password } = req.body;
@@ -14,23 +15,41 @@ const createUser = async (req: Request, res: Response, next: NextFunction) => {
     }
 
     // database call
-    const user = await userModel.findOne({ email });
+    try {
+        const user = await userModel.findOne({ email });
 
-    if (user) {
-        const error = createHttpError(400, 'User already exist with this email!');
+        if (user) {
+            const error = createHttpError(400, 'User already exist with this email!');
+            return next(error);
+        }
+
+    } catch (err) {
+        const error = createHttpError(500, `Error while getting user ${err}`);
         return next(error);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = await userModel.create({
-        name, email, password: hashedPassword
-    })
+    let newUser: User;
+    try {
+        newUser = await userModel.create({
+            name, email, password: hashedPassword
+        })
+    } catch (err) {
+        const error = createHttpError(500, `Error while getting user ${err}`)
+        return next(error)
+    }
 
-    // token generation jwt
-    const token = jwt.sign({ sub: newUser._id }, config.jwtSecret as string, { expiresIn: "7d" });
+    try {
+        // token generation jwt
+        const token = jwt.sign({ sub: newUser._id }, config.jwtSecret as string, { expiresIn: "7d" });
 
-    res.json({ accessToken: token });
+        res.json({ accessToken: token });
+    } catch (err) {
+        const error = createHttpError(500, `Error while signing token ${err}`);
+        return next(error);
+    }
+
 }
 
 export { createUser };
