@@ -3,6 +3,7 @@ import globalErrorHandler from "./middlewares/globalErrorHandler.js";
 import userRouter from "./user/userRouter.js";
 
 const app = express();
+app.use(express.json());
 
 // routes 
 app.get('/', (req, res) => {
