@@ -49,7 +49,44 @@ const createUser = async (req: Request, res: Response, next: NextFunction) => {
         const error = createHttpError(500, `Error while signing token ${err}`);
         return next(error);
     }
-
 }
 
-export { createUser };
+const userLogin = async (req: Request, res: Response, next: NextFunction) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        const error = createHttpError(400, 'All field are required!')
+        return next(error);
+    }
+
+    let user;
+    try {
+        user = await userModel.findOne({ email });
+
+        if (!user) {
+            const error = createHttpError(400, 'Invalid user email');
+            return next(error);
+        }
+    } catch (err) {
+        const error = createHttpError(500, `Error while getting user ${err}`);
+        return next(error);
+    }
+
+    const isPasswordMatched = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordMatched) {
+        const error = createHttpError(400, 'password mismatched!');
+        return next(error);
+    }
+
+    try {
+        const token = jwt.sign({ sub: user._id }, config.jwtSecret as string, { expiresIn: "7d" });
+
+        res.json({ accessToken: token });
+    } catch (err) {
+        const error = createHttpError(500, `Error while signing token ${err}`);
+        return next(error);
+    }
+}
+
+export { createUser, userLogin };
