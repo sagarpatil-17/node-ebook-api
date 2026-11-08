@@ -14,7 +14,6 @@ const createUser = async (req: Request, res: Response, next: NextFunction) => {
         return next(error);
     }
 
-    // database call
     try {
         const user = await userModel.findOne({ email });
 
@@ -75,7 +74,7 @@ const loginUser = async (req: Request, res: Response, next: NextFunction) => {
     const isPasswordMatched = await bcrypt.compare(password, user.password);
 
     if (!isPasswordMatched) {
-        const error = createHttpError(400, 'password mismatched!');
+        const error = createHttpError(400, 'Username or password incorrect!');
         return next(error);
     }
 
