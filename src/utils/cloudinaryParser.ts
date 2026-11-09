@@ -7,6 +7,11 @@ export const getPublicIdFromUrl = (url: string, folder: string): string | null =
 
         // Isolate the filename and strip the extension (.jpg, .pdf, etc.)
         const fileWithExtension = parts[1] as string;
+
+        if (folder === 'book-pdfs') {
+            return `${folder}/${fileWithExtension}`;
+        }
+
         const publicIdWithoutExtension = fileWithExtension.split('.').slice(0, -1).join('.');
 
         return `${folder}/${publicIdWithoutExtension}`;

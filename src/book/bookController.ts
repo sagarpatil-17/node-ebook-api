@@ -94,24 +94,24 @@ const updateBook = async (req: Request, res: Response, next: NextFunction) => {
         const { title, genre } = req.body;
         const { bookId } = req.params;
 
-        // 1. Validate incoming ID
+        //  Validate incoming ID
         if (!bookId) {
             return next(createHttpError(400, 'Book ID is required.'));
         }
 
-        // 2. Locate the existing book record
+        //  Locate the existing book record
         const book = await bookModel.findById(bookId);
         if (!book) {
             return next(createHttpError(404, 'Book not found!'));
         }
 
-        // 3. Authorization verification
+        //  Authorization verification
         const authReq = req as AuthRequest;
         if (!authReq.userId || book.author.toString() !== authReq.userId) {
             return next(createHttpError(403, 'Unauthorized!'));
         }
 
-        // 4. File Resolution Strategy
+        //  File Resolution Strategy
         const files = req.files as MulterFiles | undefined;
         const coverFile = files?.coverImage?.[0];
         const bookFile = files?.file?.[0];
@@ -167,7 +167,7 @@ const updateBook = async (req: Request, res: Response, next: NextFunction) => {
             );
         }
 
-        // 5. Execute Staged Asset Actions Parallelly
+        //  Execute Staged Asset Actions Parallelly
         if (uploadPromises.length > 0) {
             try {
                 // Upload new assets and remove old assets simultaneously to optimize network requests
@@ -181,7 +181,7 @@ const updateBook = async (req: Request, res: Response, next: NextFunction) => {
             }
         }
 
-        // 6. Persist changes atomically in the database
+        //  Persist changes atomically in the database
         const updatedBook = await bookModel.findByIdAndUpdate(
             bookId,
             {
@@ -215,4 +215,59 @@ const getBooks = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
-export { createBook, updateBook, getBooks };
+const deleteBook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { bookId } = req.params;
+
+        //  Guard against missing params early
+        if (!bookId) {
+            return next(createHttpError(400, 'Book ID is required!'));
+        }
+
+        //  Fetch the single target document
+        const book = await bookModel.findById(bookId);
+        if (!book) {
+            return next(createHttpError(404, 'Book not found!'));
+        }
+
+        // Authorization Verification
+        const authReq = req as AuthRequest;
+
+        // Handle matching fallback dynamically based on your schema structure
+        const authorId = book.author?._id ? book.author._id.toString() : book.author?.toString();
+        if (!authReq.userId || authorId !== authReq.userId) {
+            return next(createHttpError(403, 'Unauthorized!'));
+        }
+
+        //  Staging asset deletions for Cloudinary
+        const cloudDeletesToExecute: Promise<unknown>[] = [];
+
+        const coverPublicId = getPublicIdFromUrl(book.coverImage, 'book-covers');
+        if (coverPublicId) {
+            cloudDeletesToExecute.push(cloudinary.uploader.destroy(coverPublicId));
+        }
+
+        const bookPdfPublicId = getPublicIdFromUrl(book.file, 'book-pdfs');
+        if (bookPdfPublicId) {
+            cloudDeletesToExecute.push(cloudinary.uploader.destroy(bookPdfPublicId, { resource_type: 'raw' }));
+        }
+
+        //  Execute Cloud Purge and Database Deletion Concurrently
+        await Promise.all([
+            ...cloudDeletesToExecute,
+            bookModel.deleteOne({ _id: bookId })
+        ]);
+
+        //  Return response
+        return res.status(200).json({
+            id: bookId,
+            message: 'Book and associated assets deleted successfully!'
+        });
+
+    } catch (err) {
+        console.error("Database or Application runtime error: ", err);
+        return next(createHttpError(500, 'Failed to process delete request.'));
+    }
+}
+
+export { createBook, updateBook, getBooks, deleteBook };
