@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import bookModel from "./bookModel.js";
+import type { AuthRequest } from "../middlewares/authenticate.js";
 
 // Recreate __dirname once globally outside the request handler for optimal memory efficiency
 const __filename = fileURLToPath(import.meta.url);
@@ -65,9 +66,10 @@ const createBook = async (req: Request, res: Response, next: NextFunction) => {
         }
 
         //  Database Interaction
+        const _req = req as AuthRequest;
         const newBook = await bookModel.create({
             title,
-            author: { _id: req.userId },
+            author: { _id: _req.userId },
             genre,
             coverImage: uploadResult.secure_url,
             file: bookFileUploadResult.secure_url
