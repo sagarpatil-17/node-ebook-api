@@ -67,7 +67,7 @@ const createBook = async (req: Request, res: Response, next: NextFunction) => {
         //  Database Interaction
         const newBook = await bookModel.create({
             title,
-            author: { _id: "6af0df12627ce5c66ac27ad8" }, // Hardcoded object ID string fallback
+            author: { _id: req.userId },
             genre,
             coverImage: uploadResult.secure_url,
             file: bookFileUploadResult.secure_url
