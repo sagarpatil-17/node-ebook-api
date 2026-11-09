@@ -6,6 +6,12 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import bookModel from "./bookModel.js";
 import type { AuthRequest } from "../middlewares/authenticate.js";
+import { getPublicIdFromUrl } from "../utils/cloudinaryParser.js";
+
+interface MulterFiles {
+    coverImage?: Express.Multer.File[];
+    file?: Express.Multer.File[];
+}
 
 // Recreate __dirname once globally outside the request handler for optimal memory efficiency
 const __filename = fileURLToPath(import.meta.url);
@@ -83,4 +89,116 @@ const createBook = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
-export { createBook };
+const updateBook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { title, genre } = req.body;
+        const { bookId } = req.params;
+
+        // 1. Validate incoming ID
+        if (!bookId) {
+            return next(createHttpError(400, 'Book ID is required.'));
+        }
+
+        // 2. Locate the existing book record
+        const book = await bookModel.findById(bookId);
+        if (!book) {
+            return next(createHttpError(404, 'Book not found!'));
+        }
+
+        // 3. Authorization verification
+        const authReq = req as AuthRequest;
+        if (!authReq.userId || book.author.toString() !== authReq.userId) {
+            return next(createHttpError(403, 'Unauthorized!'));
+        }
+
+        // 4. File Resolution Strategy
+        const files = req.files as MulterFiles | undefined;
+        const coverFile = files?.coverImage?.[0];
+        const bookFile = files?.file?.[0];
+
+        let coverImageUrl = book.coverImage;
+        let bookFileUrl = book.file;
+
+        const localFilesToCleanup: string[] = [];
+        const uploadPromises: Promise<unknown>[] = [];
+        const cloudDeletesToExecute: Promise<unknown>[] = [];
+
+        // --- Process Cover Image Update ---
+        if (coverFile) {
+            const coverFilePath = path.join(UPLOADS_DIR, coverFile.filename);
+            localFilesToCleanup.push(coverFilePath);
+
+            // Queue the old file deletion if a valid URL exists
+            const oldCoverPublicId = getPublicIdFromUrl(book.coverImage, 'book-covers');
+            if (oldCoverPublicId) {
+                cloudDeletesToExecute.push(cloudinary.uploader.destroy(oldCoverPublicId));
+            }
+
+            // Queue the new upload
+            const coverImageMimeType = coverFile.mimetype.split('/').at(-1);
+            uploadPromises.push(
+                cloudinary.uploader.upload(coverFilePath, {
+                    folder: 'book-covers',
+                    ...(coverFile.filename && { filename_override: coverFile.filename }),
+                    ...(coverImageMimeType && { format: coverImageMimeType })
+                }).then(res => coverImageUrl = res.secure_url)
+            );
+        }
+
+        // --- Process Book PDF Update ---
+        if (bookFile) {
+            const bookFilePath = path.join(UPLOADS_DIR, bookFile.filename);
+            localFilesToCleanup.push(bookFilePath);
+
+            // Queue the old raw PDF deletion if a valid URL exists
+            const oldBookPublicId = getPublicIdFromUrl(book.file, 'book-pdfs');
+            if (oldBookPublicId) {
+                cloudDeletesToExecute.push(cloudinary.uploader.destroy(oldBookPublicId, { resource_type: 'raw' }));
+            }
+
+            // Queue the new upload
+            uploadPromises.push(
+                cloudinary.uploader.upload(bookFilePath, {
+                    resource_type: 'raw',
+                    folder: 'book-pdfs',
+                    format: 'pdf',
+                    ...(bookFile.filename && { filename_override: bookFile.filename })
+                }).then(res => bookFileUrl = res.secure_url)
+            );
+        }
+
+        // 5. Execute Staged Asset Actions Parallelly
+        if (uploadPromises.length > 0) {
+            try {
+                // Upload new assets and remove old assets simultaneously to optimize network requests
+                await Promise.all([...uploadPromises, ...cloudDeletesToExecute]);
+            } catch (uploadError) {
+                console.error("Cloudinary transfer synchronization error: ", uploadError);
+                return next(createHttpError(500, 'Cloud storage update failed.'));
+            } finally {
+                // Immediate asynchronous cleanup of local multer storage cache
+                await Promise.all(localFilesToCleanup.map(filePath => fs.unlink(filePath).catch(() => { })));
+            }
+        }
+
+        // 6. Persist changes atomically in the database
+        const updatedBook = await bookModel.findByIdAndUpdate(
+            bookId,
+            {
+                title: title ?? book.title,
+                genre: genre ?? book.genre,
+                coverImage: coverImageUrl,
+                file: bookFileUrl
+            },
+            { new: true, runValidators: true }
+        );
+
+        return res.status(200).json(updatedBook);
+
+    } catch (error) {
+        console.error("Database or Application runtime error: ", error);
+        return next(createHttpError(500, 'Failed to process request.'));
+    }
+};
+
+export { createBook, updateBook };
