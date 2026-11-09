@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { createBook, updateBook } from './bookController.js';
+import { createBook, getBooks, updateBook } from './bookController.js';
 import multer from "multer";
 import authenticate from '../middlewares/authenticate.js';
 
@@ -26,5 +26,7 @@ bookRouter.patch('/update/:bookId', authenticate, upload.fields([
     { name: 'coverImage', maxCount: 1 },
     { name: 'file', maxCount: 1 }
 ]), updateBook)
+
+bookRouter.get('/', authenticate, getBooks)
 
 export default bookRouter;

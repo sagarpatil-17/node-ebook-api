@@ -201,4 +201,18 @@ const updateBook = async (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
-export { createBook, updateBook };
+const getBooks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const _req = req as AuthRequest;
+        const books = await bookModel.find(
+            { author: _req.userId } as Record<string, unknown>
+        );
+
+        res.status(200).json(books);
+    } catch (err) {
+        console.log(err)
+        return next(createHttpError(500, 'Error while getting books!'));
+    }
+}
+
+export { createBook, updateBook, getBooks };
